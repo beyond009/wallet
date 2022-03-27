@@ -1,0 +1,27 @@
+type main = 
+ service {
+   create_canister: () -> (Result_1);
+   delete_canister: (canister_id) -> (Result);
+   install_code: (vec nat8, canister_id) -> (Result);
+   propose: (nat, nat) -> (Result);
+   start_canister: (canister_id) -> (Result);
+   stop_canister: (canister_id) -> (Result);
+   vote: (nat, bool) -> (Result);
+ };
+type canister_id = principal;
+type Result_1 = 
+ variant {
+   err: Error;
+   ok: canister_id;
+ };
+type Result = 
+ variant {
+   err: Error;
+   ok: text;
+ };
+type Error = 
+ variant {
+   CanisterNumberWrong;
+   ProposeNumberWrong;
+ };
+service : (nat, vec principal) -> main
