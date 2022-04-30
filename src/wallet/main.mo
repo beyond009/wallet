@@ -102,6 +102,9 @@ shared(install) actor class main(m : Nat, owners : [Principal]) = self {
     #CanisterNumberWrong;
     #ProposeNumberWrong;
   };
+    // public query func getPropose(): async {
+    //   proposes;
+    // };
     public shared({caller}) func propose(num: Nat,action: Nat) : async Result.Result<Text, Error> {
 
       switch (canisters.get(num)) {
