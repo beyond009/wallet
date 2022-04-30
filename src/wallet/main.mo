@@ -13,7 +13,7 @@ import Hash "mo:base/Hash";
 import Option "mo:base/Option";
 
 shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
-
+    private stable var M  = m;
     type Error = {
         #Invalid_Caller;
         #Invalid_CanisterId;
@@ -191,17 +191,26 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
       func (id) { id == id }
     }; 
 
-    public shared({caller}) func vote(index : Nat, agree : Bool) : async Result.Result<Text, Error> {
+    public shared({caller}) func votePropose(index : Nat, agree : Bool) : async Result.Result<(), Error> {
         switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
            case null return #err(#Invalid_Caller);
            case (?c) {
              switch(proposes.get(index)){
                case null return #err(#Invalid_Propose_index);
                case (?propose) {
-                  
-               }
-             }
-           }
+                  switch(vote.get(index)){
+                    case null {
+                      vote.put(index, 1);
+                      return #ok() 
+                    };
+                    case (?num){
+                      vote.put(index, num + 1);
+                      return #ok();
+                    };
+                  };
+               };
+             };
+           };
         };            
     }; 
     public shared({caller}) func execPropose(index : Nat) : async Result.Result<(), Error> {
@@ -211,16 +220,34 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
              switch(proposes.get(index)){
                case null return #err(#Invalid_Propose_index);
                case (?propose) {
-                  if(propose.result) {
-                     switch(propose.action) {
-                       
-                     }
-                  } else {
-                    return #err(#Invalid_Propose_Result);
-                  } 
-               }
-             }
-           }
+                 switch(vote.get(index)) {
+                   case null return #err(#Invalid_Propose_Result);
+                   case (?num) {
+                      if(num > M){
+                        switch(proposes.action){
+                          case(#Install) {
+                            await ic.install_code({ 
+                                arg = [];
+                                wasm_module = proposes.wasm;
+                                mode = #install;
+                                canister_id = canister_id;
+                            });
+                            return #ok();
+                          };
+                          case(#Add_Owner){return #ok();};
+                          case(#Del_Owner){return #ok();};
+                          case(#Create_Canister){return #ok();};
+                          case(#Start_Canister){return #ok();};
+                          case(#Del_Owner){return #ok();}
+                        };
+                      } else {
+                        return #err(#Invalid_Propose_Result);
+                    };
+                  };
+                 };
+               };
+             };
+           };
         };         
     };
 
