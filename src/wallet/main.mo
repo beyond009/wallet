@@ -21,6 +21,8 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
         #No_Record;
         #Insufficient_Cycles;
         #Transfer_Failed;
+        #Invalid_Propose_Result;
+        #Invalid_Propose_index;
     };
     type Action = {
       #Install;
@@ -44,6 +46,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
       content : Text; 
       action : Action;
       wasm : ?[Nat8];
+      result : Bool;
     };
 
     type Record = {
@@ -60,9 +63,11 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
     stable var owner : Principal = installer.caller;
     stable var owners : [Principal] = members;
     stable var proposes_entries : [(Nat, Propose)] = [];
+    stable var vote_entries : [(Nat, Nat)] = [];
     var proposes : TrieMap.TrieMap<Nat, Propose> = TrieMap.fromEntries(proposes_entries.vals(), Nat.equal, Hash.hash);
     stable var canisters_entries : [(Principal, Canister)] = [];
     var canisters : TrieMap.TrieMap<Principal, Canister> = TrieMap.fromEntries(canisters_entries.vals(), Principal.equal, Principal.hash);
+    var vote : TrieMap.TrieMap<Nat, Nat> = TrieMap.fromEntries(vote_entries.vals(), Nat.equal, Hash.hash);
 
     public shared({caller}) func changeOwner(newOwner : Principal) : async Result.Result<(), Error>{
         if(caller == owner){
@@ -122,6 +127,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
             content = "";
             action = #Install;
             wasm = ?[0];
+            result = false;
         });
         var index = 0;
         for(c in proposes.vals()){
@@ -173,6 +179,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
                 content = p.content;
                 action = p.action;
                 wasm = p.wasm;  
+                result = false;
              };
              proposes.put(proposes.size() + 1, tmp);
              #ok(proposes.size() + 1)
@@ -184,6 +191,38 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
       func (id) { id == id }
     }; 
 
+    public shared({caller}) func vote(index : Nat, agree : Bool) : async Result.Result<Text, Error> {
+        switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
+           case null return #err(#Invalid_Caller);
+           case (?c) {
+             switch(proposes.get(index)){
+               case null return #err(#Invalid_Propose_index);
+               case (?propose) {
+                  
+               }
+             }
+           }
+        };            
+    }; 
+    public shared({caller}) func execPropose(index : Nat) : async Result.Result<(), Error> {
+        switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
+           case null return #err(#Invalid_Caller);
+           case (?c) {
+             switch(proposes.get(index)){
+               case null return #err(#Invalid_Propose_index);
+               case (?propose) {
+                  if(propose.result) {
+                     switch(propose.action) {
+                       
+                     }
+                  } else {
+                    return #err(#Invalid_Propose_Result);
+                  } 
+               }
+             }
+           }
+        };         
+    };
 
     public shared({caller}) func putCanister(c : Canister) : async Result.Result<(), Error>{
         if(caller != owner){
@@ -479,7 +518,4 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
         canisters_entries := [];
         record_entries := [];
     };
-
-
-
 };
