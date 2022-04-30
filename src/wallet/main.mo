@@ -1,202 +1,485 @@
-import Array "mo:base/Array";
-import Buffer "mo:base/Buffer";
-import Deque "mo:base/Deque";
-import List "mo:base/List";
-import Nat "mo:base/Nat";
-import Option "mo:base/Option";
-import TrieMap "mo:base/TrieMap";
-import Hash "mo:base/Hash";
-import Text "mo:base/Text";
-import Cycles "mo:base/ExperimentalCycles";
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
-import TrieSet "mo:base/TrieSet";
-shared(install) actor class main(m : Nat, owners : [Principal]) = self {
-     public type canister_id = Principal;
-  public type canister_settings = {
-    freezing_threshold : ?Nat;
-    controllers : ?[Principal];
-    memory_allocation : ?Nat;
-    compute_allocation : ?Nat;
-  };
-  public type definite_canister_settings = {
-    freezing_threshold : Nat;
-    controllers : [Principal];
-    memory_allocation : Nat;
-    compute_allocation : Nat;
-  };
-  public type http_header = { value : Text; name : Text };
-  public type http_request_error = {
-    #dns_error;
-    #no_consensus;
-    #transform_error;
-    #unreachable;
-    #bad_tls;
-    #conn_timeout;
-    #invalid_url;
-    #timeout;
-  };
-  public type http_response = {
-    status : Nat;
-    body : [Nat8];
-    headers : [http_header];
-  };
-  public type user_id = Principal;
-  public type wasm_module = [Nat8];
-  public type Self = actor {
-    canister_status : shared { canister_id : canister_id } -> async {
-        status : { #stopped; #stopping; #running };
-        memory_size : Nat;
-        cycles : Nat;
-        settings : definite_canister_settings;
-        module_hash : ?[Nat8];
-      };
-    create_canister : shared { settings : ?canister_settings } -> async {
-        canister_id : canister_id;
-      };
-    delete_canister : shared { canister_id : canister_id } -> async ();
-    deposit_cycles : shared { canister_id : canister_id } -> async ();
-    http_request : shared {
-        url : Text;
-        method : { #get };
-        body : ?[Nat8];
-        transform : ?{
-          #function : shared query http_response -> async http_response;
-        };
-        headers : [http_header];
-      } -> async { #Ok : http_response; #Err : ?http_request_error };
-    install_code : shared {
-        arg : [Nat8];
-        wasm_module : wasm_module;
-        mode : { #reinstall; #upgrade; #install };
-        canister_id : canister_id;
-      } -> async ();
-    provisional_create_canister_with_cycles : shared {
-        settings : ?canister_settings;
-        amount : ?Nat;
-      } -> async { canister_id : canister_id };
-    provisional_top_up_canister : shared {
-        canister_id : canister_id;
-        amount : Nat;
-      } -> async ();
-    raw_rand : shared () -> async [Nat8];
-    start_canister : shared { canister_id : canister_id } -> async ();
-    stop_canister : shared { canister_id : canister_id } -> async ();
-    uninstall_code : shared { canister_id : canister_id } -> async ();
-    update_settings : shared {
+import Cycles "mo:base/ExperimentalCycles";
+import Array "mo:base/Array";
+import TrieMap "mo:base/TrieMap";
+import Time "mo:base/Time";
+import Prim "mo:⛔";
+import Iter "mo:base/Iter";
+import Account "Account";
+import Blob "mo:base/Blob";
+import Nat "mo:base/Nat";
+import Hash "mo:base/Hash";
+import Option "mo:base/Option";
+
+shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
+
+    type Error = {
+        #Invalid_Caller;
+        #Invalid_CanisterId;
+        #No_Wasm;
+        #No_Record;
+        #Insufficient_Cycles;
+        #Transfer_Failed;
+    };
+    type Action = {
+      #Install;
+      #Add_Owner;
+      #Del_Owner;
+      #Create_Canister;
+      #Start_Canister;
+      #Stop_Canister;
+      #Del_Canister;
+    };
+    type Canister = {
+        name : Text;
+        description : Text;
         canister_id : Principal;
-        settings : canister_settings;
-      } -> async ();
-  };
-  private stable var canister_entries : [var (Nat, canister_id)]     = [var];
-  private stable var propose_entries  : [var (Nat, (Nat, Nat, Nat))] = [var];
-  private stable var vote_buffer_entries : [var (Nat, TrieSet.Set<Principal>)] = [var];
-  private stable var M  = m;
-  private let N = owners.size();
-  private let ic : Self = actor "aaaaa-aa";
-  private stable var canister_number: Nat = 0;
-  private var canisters = TrieMap.fromEntries<Nat, canister_id>(canister_entries.vals(), Nat.equal, Hash.hash);
-  private var proposes = TrieMap.fromEntries<Nat, (Nat, Nat, Nat)>(propose_entries.vals(), Nat.equal, Hash.hash);
-  private var votes_buffer = TrieMap.fromEntries<Nat, TrieSet.Set<Principal>>(vote_buffer_entries.vals(), Nat.equal, Hash.hash);
-  private type Error = {
-    #CanisterNumberWrong;
-    #ProposeNumberWrong;
-  };
-    // public query func getPropose(): async {
-    //   proposes;
-    // };
-    public shared({caller}) func propose(num: Nat,action: Nat) : async Result.Result<Text, Error> {
-
-      switch (canisters.get(num)) {
-            case null { #err(#CanisterNumberWrong) };
-            case (?canister_id) {
-                switch(proposes.get(num)) {
-                    case (?agreenum) {
-                        #err(#ProposeNumberWrong)
-                    };
-                    case (null) {
-                        proposes.put(num, (0, 0, action));
-                        #ok("Created")
-                    };
-                }
-            };
-        }
-      
+        wasm : ?[Nat8];
     };
-    public shared({caller}) func vote(num : Nat, agree : Bool) : async Result.Result<Text, Error> {
-        switch(proposes.get(num)) {
-            case (?propose) {
-                switch(votes_buffer.get(num)) {
-                    case null {
-                        let set_tmp = TrieSet.empty<Principal>();
-                        let set_in = TrieSet.put(set_tmp, caller, Principal.hash(caller), Principal.equal);
-                        votes_buffer.put(num, set_in);
-                    };
-                    case (?set) {
-                            let set_in = TrieSet.put(set, caller, Principal.hash(caller), Principal.equal);
-                            votes_buffer.put(num, set_in);
-                    };
-                };
-                if (agree) {
-                    if ((propose.0 + 1) == M) {
-                        proposes.delete(num);
-                        return #ok("propose passed");
-                    };
-                    proposes.put(num, (propose.0 + 1, propose.1, propose.2));
-                    return #ok("success");
-                } else {
-                    let left : Nat = N - M;
-                    if ((propose.1 + 1) > left) {
-                        proposes.delete(num);
-                        return #ok("propose failed");
-                    } else {
-                        proposes.put(num, (propose.0, propose.1 + 1, propose.2));
-                        return #ok("success");
-                    };
-                };
-            };
-            case (null) {
-                #err(#ProposeNumberWrong)
-            };
+    type Propose = {
+      index : Nat;
+      file_key : Text;
+      principal : Principal;
+      content : Text; 
+      action : Action;
+      wasm : ?[Nat8];
+    };
+
+    type Record = {
+        canister_id : Principal;
+        method : {#deploy; #deposit; #start; #stop;};
+        amount : Nat;
+        times : Time.Time;
+    };
+
+
+    stable var record_entries : [(Principal,[Record])] = [];
+    var records : TrieMap.TrieMap<Principal,[Record]> = TrieMap.fromEntries(record_entries.vals(), Principal.equal, Principal.hash);
+
+    stable var owner : Principal = installer.caller;
+    stable var owners : [Principal] = members;
+    stable var proposes_entries : [(Nat, Propose)] = [];
+    var proposes : TrieMap.TrieMap<Nat, Propose> = TrieMap.fromEntries(proposes_entries.vals(), Nat.equal, Hash.hash);
+    stable var canisters_entries : [(Principal, Canister)] = [];
+    var canisters : TrieMap.TrieMap<Principal, Canister> = TrieMap.fromEntries(canisters_entries.vals(), Principal.equal, Principal.hash);
+
+    public shared({caller}) func changeOwner(newOwner : Principal) : async Result.Result<(), Error>{
+        if(caller == owner){
+            owner := newOwner;
+            #ok()
+        }else{
+            #err(#Invalid_Caller)
         }
     };
 
-    public shared(caller) func create_canister() :  async Result.Result<canister_id, Error> {
-        let settings = {
-            freezing_threshold = ?2592000;
-            controllers = ?[Principal.fromActor(self)];
-            memory_allocation = ?0;
-            compute_allocation = ?0;
+    public query func getOwner() : async Principal{
+        owner
+    };
+
+    stable var cycle_wasm : [Nat8] = [];
+
+    public shared({caller}) func installCycleWasm(wasm : [Nat8]) : async (){
+        if(caller == installer.caller){
+            cycle_wasm := wasm
+        }
+    };
+
+    type Status = {
+        cycle_balance : Nat;
+        memory : Nat;
+    };
+
+    public query({caller}) func getStatus() : async Result.Result<Status, Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
         };
-        let res = await ic.create_canister({ settings = ?settings;});
-        canister_number += 1;
-        canisters.put(canister_number, res.canister_id);
-        #ok(res.canister_id)
+        #ok({
+            cycle_balance = Cycles.balance();
+            memory = Prim.rts_memory_size()
+        })
     };
 
-    public shared(caller) func install_code(wsm : [Nat8], canister_id : canister_id) : async Result.Result<Text, Error> {
-        await ic.install_code({ 
-            arg = [];
-            wasm_module = wsm;
-            mode = #install;
-            canister_id = canister_id;
+    public query({caller}) func getCanisters() : async Result.Result<[Canister], Error>{
+        var res = Array.init<Canister>(canisters.size(), {
+            name = "";
+            description = "";
+            canister_id = Principal.fromActor(this);
+            wasm = null;
         });
-        #ok("install ok")
+        var index = 0;
+        for(c in canisters.vals()){
+            res[index] := c;
+            index := index + 1;
+        };
+        #ok(Array.freeze<Canister>(res))
+    };
+    public query({caller}) func getProposes() : async Result.Result<[Propose], Error>{
+        var res = Array.init<Propose>(proposes.size(), {
+            index = 0;
+            file_key = "";
+            principal = Principal.fromActor(this);
+            content = "";
+            action = #Install;
+            wasm = ?[0];
+        });
+        var index = 0;
+        for(c in proposes.vals()){
+            res[index] := c;
+            index := index + 1;
+        };
+        #ok(Array.freeze<Propose>(res))
+    };
+    public query({caller}) func getRecords(p : Principal) : async Result.Result<[Record], Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        switch(records.get(p)){
+            case null { #err(#No_Record)};
+            case (?r) { 
+                #ok(r)
+            }
+        };
+
     };
 
-    public shared(caller) func start_canister(canister_id : canister_id) : async Result.Result<Text, Error> {
-        await ic.start_canister({ canister_id = canister_id;});
-        #ok("ok")
+    public query({caller}) func getWasm(canister_id : Principal) : async Result.Result<[Nat8], Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        switch(canisters.get(canister_id)){
+            case null { #err(#Invalid_CanisterId) };
+            case(?c){
+                switch(c.wasm){
+                    case null { #err(#No_Wasm) };
+                    case(?wasm){
+                        #ok(wasm)
+                    }
+                }
+            }
+        }
     };
 
-    public shared(caller) func stop_canister(canister_id : canister_id) : async Result.Result<Text, Error> {
-        await ic.stop_canister({ canister_id = canister_id;});
-        #ok("ok")
+
+
+    public shared({caller}) func addPropose(p: Propose) : async Result.Result<Nat, Error> {
+         switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
+           case null return #err(#Invalid_Caller);
+           case (?c) {
+             var tmp : Propose = {
+                index = proposes.size();
+                file_key = p.file_key;
+                principal = p.principal;
+                content = p.content;
+                action = p.action;
+                wasm = p.wasm;  
+             };
+             proposes.put(proposes.size() + 1, tmp);
+             #ok(proposes.size() + 1)
+           }
+         };
     };
 
-    public shared(caller) func delete_canister(canister_id : canister_id) : async Result.Result<Text, Error> {
-        await ic.delete_canister({ canister_id = canister_id;});
-        #ok("ok")
+    private func eqId(id: Principal) : Principal -> Bool {
+      func (id) { id == id }
+    }; 
+
+
+    public shared({caller}) func putCanister(c : Canister) : async Result.Result<(), Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        canisters.put(c.canister_id, c);
+        #ok(())
     };
+
+    public type canister_id = Principal;
+
+    public type wasm_module = [Nat8];
+
+    public type canister_settings = {
+        freezing_threshold : ?Nat;
+        controllers : ?[Principal];
+        memory_allocation : ?Nat;
+        compute_allocation : ?Nat;
+    };
+
+    public type Management = actor {
+
+        delete_canister : shared { canister_id : canister_id } -> async ();
+
+        deposit_cycles : shared { canister_id : canister_id } -> async ();
+        start_canister : shared { canister_id : canister_id } -> async ();
+        stop_canister : shared { canister_id : canister_id } -> async ();
+        install_code : shared {
+            arg : [Nat8];
+            wasm_module : wasm_module;
+            mode : { #reinstall; #upgrade; #install };
+            canister_id : canister_id;
+            } -> async ();
+
+        create_canister : shared { settings : ?canister_settings } -> async {
+            canister_id : canister_id;
+        };
+        update_settings : ({
+            canister_id : Principal;
+            settings : canister_settings
+        }) -> async ();
+
+    };
+
+    public type Memo = Nat64;
+
+    public type Token = {
+        e8s : Nat64;
+    };
+
+    public type TimeStamp = {
+        timestamp_nanos: Nat64;
+    };
+
+    public type AccountIdentifier = Blob;
+
+    public type SubAccount = Blob;
+
+    public type BlockIndex = Nat64;
+
+    public type TransferError = {
+        #BadFee: {
+            expected_fee: Token;
+        };
+        #InsufficientFunds: {
+            balance: Token;
+        };
+        #TxTooOld: {
+            allowed_window_nanos: Nat64;
+        };
+        #TxCreatedInFuture;
+        #TxDuplicate : {
+            duplicate_of: BlockIndex;
+        };
+    };
+
+    public type TransferArgs = {
+        memo: Memo;
+        amount: Token;
+        fee: Token;
+        from_subaccount: ?SubAccount;
+        to: AccountIdentifier;
+        created_at_time: ?TimeStamp;
+    };
+
+    public type TransferResult = {
+        #Ok: BlockIndex;
+        #Err: TransferError;
+    };
+
+    public type Address = Blob;
+
+    public type AccountBalanceArgs = {
+        account : Address
+    };
+
+    type NotifyCanisterArgs = {
+        // The of the block to send a notification about.
+        block_height: BlockIndex;
+        // Max fee, should be 10000 e8s.
+        max_fee: Token;
+        // Subaccount the payment came from.
+        from_subaccount: ?SubAccount;
+        // Canister that received the payment.
+        to_canister: Principal;
+        // Subaccount that received the payment.
+        to_subaccount:  ?SubAccount;
+    };
+
+    type Ledger = actor{
+        transfer : TransferArgs -> async TransferResult;
+        account_balance : query AccountBalanceArgs -> async Token;
+        notify_dfx : NotifyCanisterArgs -> async ();
+    };
+
+    let CYCLE_MINTING_CANISTER = Principal.fromText("rkp4c-7iaaa-aaaaa-aaaca-cai");
+    let ledger : Ledger = actor("ryjl3-tyaaa-aaaaa-aaaba-cai");
+    let TOP_UP_CANISTER_MEMO = 0x50555054 : Nat64;
+
+    type DeployArgs = {
+        name : Text;
+        description : Text;
+        settings : ?canister_settings;
+        wasm : [Nat8];
+        cycle_amount : Nat;
+        preserve_wasm : Bool;
+    };
+
+    public shared({caller}) func deployCanister(
+        args : DeployArgs
+    ) : async Result.Result<Principal, Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        if(args.cycle_amount >= Cycles.balance()){
+            return #err(#Insufficient_Cycles)
+        };
+        Cycles.add(args.cycle_amount);
+        let management : Management = actor("aaaaa-aa");
+        let _canister_id = (await management.create_canister({ settings = args.settings })).canister_id;
+        canisters.put(_canister_id, {
+            name = args.name;
+            description = args.description;
+            canister_id = _canister_id;
+            wasm = if(args.preserve_wasm){
+                ?args.wasm
+            }else{
+                null
+            };
+        });
+        ignore await management.update_settings({
+            canister_id = _canister_id;
+            settings = {
+                freezing_threshold = null;
+                controllers = ?[Principal.fromActor(this), caller];
+                memory_allocation = null;
+                compute_allocation = null;
+            }
+        });
+        ignore await management.install_code({
+            arg = [];
+            wasm_module = args.wasm;
+            mode = #install;
+            canister_id = _canister_id;
+        });
+        let record = {
+            canister_id = _canister_id;
+            method = #deploy;
+            amount = args.cycle_amount;
+            times = Time.now();
+        };
+        switch(records.get(record.canister_id)){
+            case(null) {records.put(record.canister_id,[record])};
+            case(?r){
+                let p = Array.append(r,[record]);
+                records.put(record.canister_id,p);
+            }
+        };
+        #ok(_canister_id)
+    };
+
+    public shared({caller}) func startCanister(principal : Principal) : async Result.Result<Text, Text> {
+        let management : Management = actor("aaaaa-aa");
+        await management.start_canister({ canister_id = principal});
+        let record = {
+            canister_id = principal;
+            method = #start;
+            amount = 0;
+            times = Time.now();
+        };
+        switch(records.get(record.canister_id)){
+            case(null) {records.put(record.canister_id,[record])};
+            case(?r){
+                let p = Array.append(r,[record]);
+                records.put(record.canister_id,p);
+            }
+        };
+        #ok("start canister successfully")
+        
+    };
+
+    public shared({caller}) func stopCanister(principal : Principal) : async Result.Result<Text, Text> {
+        let management : Management = actor("aaaaa-aa");
+        await management.stop_canister({ canister_id = principal});
+        let record = {
+            canister_id = principal;
+            method = #stop;
+            amount = 0;
+            times = Time.now();
+        };
+        switch(records.get(record.canister_id)){
+            case(null) {records.put(record.canister_id,[record])};
+            case(?r){
+                let p = Array.append(r,[record]);
+                records.put(record.canister_id,p);
+            }
+        };
+        #ok("stop canister successfully")
+
+    };
+
+    public shared({caller}) func depositCycles(
+        id : Principal,
+        cycle_amount : Nat,
+    ) : async Result.Result<(), Error>{
+        /// 0.01 T cycles 剩下
+        if(cycle_amount + 10_000_000_000 >= Cycles.balance()){
+            return #err(#Insufficient_Cycles)
+        }else if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        let management : Management = actor("aaaaa-aa");
+        Cycles.add(cycle_amount);
+        ignore await management.deposit_cycles({ canister_id = id });
+        let record = {
+            canister_id = id;
+            method = #deposit;
+            amount = cycle_amount;
+            times = Time.now();
+        };
+        switch(records.get(record.canister_id)){
+            case(null) {records.put(record.canister_id,[record])};
+            case(?r){
+                let p = Array.append(r,[record]);
+                records.put(record.canister_id,p);
+            }
+        };
+        #ok(())
+    };
+
+    type InterfaceError = {
+        #Insufficient_Cycles;
+    };
+
+    type CycleInterface = actor{
+        withdraw_cycles : (to : ?Principal) -> async ();
+    };
+
+    public shared({caller}) func delCanister(
+        id : Principal,
+        cycle_to : ?Principal
+    ) : async Result.Result<(), Error>{
+        if(caller != owner){
+            return #err(#Invalid_Caller)
+        };
+        // install wasm
+        let management : Management = actor("aaaaa-aa");
+        ignore await management.install_code({
+            arg = [];
+            wasm_module = cycle_wasm;
+            mode = #reinstall;
+            canister_id = id;
+        });
+        // call to interface
+        let from : CycleInterface = actor(Principal.toText(id));
+        await from.withdraw_cycles(cycle_to);
+        ignore await management.stop_canister({canister_id = id });
+        ignore await management.delete_canister({ canister_id = id });
+        canisters.delete(id);
+        #ok(())
+    };
+
+    public func wallet_receive() : async (){
+        ignore Cycles.accept(Cycles.available())
+    };
+
+    system func preupgrade(){
+        canisters_entries := Iter.toArray(canisters.entries());
+        record_entries := Iter.toArray(records.entries());
+    };
+
+    system func postupgrade(){
+        canisters_entries := [];
+        record_entries := [];
+    };
+
+
 
 };
