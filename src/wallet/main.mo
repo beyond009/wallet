@@ -224,13 +224,14 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
                    case null return #err(#Invalid_Propose_Result);
                    case (?num) {
                       if(num > M){
-                        switch(proposes.action){
+                        switch(propose.action){
                           case(#Install) {
-                            await ic.install_code({ 
+                            let management : Management = actor("aaaaa-aa");
+                            await management.install_code({ 
                                 arg = [];
-                                wasm_module = proposes.wasm;
+                                wasm_module = Option.unwrap(propose.wasm);
                                 mode = #install;
-                                canister_id = canister_id;
+                                canister_id = propose.principal;
                             });
                             return #ok();
                           };
@@ -238,7 +239,9 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
                           case(#Del_Owner){return #ok();};
                           case(#Create_Canister){return #ok();};
                           case(#Start_Canister){return #ok();};
-                          case(#Del_Owner){return #ok();}
+                          case(#Del_Owner){return #ok();};
+                          case(#Del_Canister){return #ok();};
+                          case(#Stop_Canister){return #ok();};
                         };
                       } else {
                         return #err(#Invalid_Propose_Result);
