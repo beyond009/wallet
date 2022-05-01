@@ -1,13 +1,14 @@
 type hub = 
  service {
-   addPropose: (Propose) -> (Result_8);
+   addPropose: (Propose) -> (Result_9);
    changeOwner: (principal) -> (Result);
    delCanister: (principal, opt principal) -> (Result);
-   deployCanister: (DeployArgs) -> (Result_7);
+   deployCanister: (DeployArgs) -> (Result_8);
    depositCycles: (principal, nat) -> (Result);
    execPropose: (nat) -> (Result);
-   getCanisters: () -> (Result_6) query;
+   getCanisters: () -> (Result_7) query;
    getOwner: () -> (principal) query;
+   getOwners: () -> (Result_6) query;
    getProposes: () -> (Result_5) query;
    getRecords: (principal) -> (Result_4) query;
    getStatus: () -> (Result_3) query;
@@ -32,20 +33,25 @@ type Status =
    cycle_balance: nat;
    memory: nat;
  };
-type Result_8 = 
+type Result_9 = 
  variant {
    err: Error;
    ok: nat;
  };
-type Result_7 = 
+type Result_8 = 
  variant {
    err: Error;
    ok: principal;
  };
-type Result_6 = 
+type Result_7 = 
  variant {
    err: Error;
    ok: vec Canister;
+ };
+type Result_6 = 
+ variant {
+   err: Error;
+   ok: vec principal;
  };
 type Result_5 = 
  variant {

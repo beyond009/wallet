@@ -27,7 +27,7 @@ export const idlFactory = ({ IDL }) => {
     'Invalid_Caller' : IDL.Null,
     'No_Wasm' : IDL.Null,
   });
-  const Result_8 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : Error });
+  const Result_9 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : Error });
   const Result = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
   const canister_settings = IDL.Record({
     'freezing_threshold' : IDL.Opt(IDL.Nat),
@@ -43,14 +43,18 @@ export const idlFactory = ({ IDL }) => {
     'cycle_amount' : IDL.Nat,
     'settings' : IDL.Opt(canister_settings),
   });
-  const Result_7 = IDL.Variant({ 'ok' : IDL.Principal, 'err' : Error });
+  const Result_8 = IDL.Variant({ 'ok' : IDL.Principal, 'err' : Error });
   const Canister = IDL.Record({
     'name' : IDL.Text,
     'canister_id' : IDL.Principal,
     'wasm' : IDL.Opt(IDL.Vec(IDL.Nat8)),
     'description' : IDL.Text,
   });
-  const Result_6 = IDL.Variant({ 'ok' : IDL.Vec(Canister), 'err' : Error });
+  const Result_7 = IDL.Variant({ 'ok' : IDL.Vec(Canister), 'err' : Error });
+  const Result_6 = IDL.Variant({
+    'ok' : IDL.Vec(IDL.Principal),
+    'err' : Error,
+  });
   const Result_5 = IDL.Variant({ 'ok' : IDL.Vec(Propose), 'err' : Error });
   const Time = IDL.Int;
   const Record = IDL.Record({
@@ -70,18 +74,19 @@ export const idlFactory = ({ IDL }) => {
   const Result_2 = IDL.Variant({ 'ok' : IDL.Vec(IDL.Nat8), 'err' : Error });
   const Result_1 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const hub = IDL.Service({
-    'addPropose' : IDL.Func([Propose], [Result_8], []),
+    'addPropose' : IDL.Func([Propose], [Result_9], []),
     'changeOwner' : IDL.Func([IDL.Principal], [Result], []),
     'delCanister' : IDL.Func(
         [IDL.Principal, IDL.Opt(IDL.Principal)],
         [Result],
         [],
       ),
-    'deployCanister' : IDL.Func([DeployArgs], [Result_7], []),
+    'deployCanister' : IDL.Func([DeployArgs], [Result_8], []),
     'depositCycles' : IDL.Func([IDL.Principal, IDL.Nat], [Result], []),
     'execPropose' : IDL.Func([IDL.Nat], [Result], []),
-    'getCanisters' : IDL.Func([], [Result_6], ['query']),
+    'getCanisters' : IDL.Func([], [Result_7], ['query']),
     'getOwner' : IDL.Func([], [IDL.Principal], ['query']),
+    'getOwners' : IDL.Func([], [Result_6], ['query']),
     'getProposes' : IDL.Func([], [Result_5], ['query']),
     'getRecords' : IDL.Func([IDL.Principal], [Result_4], ['query']),
     'getStatus' : IDL.Func([], [Result_3], ['query']),

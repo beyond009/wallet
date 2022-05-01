@@ -58,11 +58,13 @@ export type Result_4 = { 'ok' : Array<Record> } |
   { 'err' : Error };
 export type Result_5 = { 'ok' : Array<Propose> } |
   { 'err' : Error };
-export type Result_6 = { 'ok' : Array<Canister> } |
+export type Result_6 = { 'ok' : Array<Principal> } |
   { 'err' : Error };
-export type Result_7 = { 'ok' : Principal } |
+export type Result_7 = { 'ok' : Array<Canister> } |
   { 'err' : Error };
-export type Result_8 = { 'ok' : bigint } |
+export type Result_8 = { 'ok' : Principal } |
+  { 'err' : Error };
+export type Result_9 = { 'ok' : bigint } |
   { 'err' : Error };
 export interface Status { 'memory' : bigint, 'cycle_balance' : bigint }
 export type Time = bigint;
@@ -73,16 +75,17 @@ export interface canister_settings {
   'compute_allocation' : [] | [bigint],
 }
 export interface hub {
-  'addPropose' : (arg_0: Propose) => Promise<Result_8>,
+  'addPropose' : (arg_0: Propose) => Promise<Result_9>,
   'changeOwner' : (arg_0: Principal) => Promise<Result>,
   'delCanister' : (arg_0: Principal, arg_1: [] | [Principal]) => Promise<
       Result
     >,
-  'deployCanister' : (arg_0: DeployArgs) => Promise<Result_7>,
+  'deployCanister' : (arg_0: DeployArgs) => Promise<Result_8>,
   'depositCycles' : (arg_0: Principal, arg_1: bigint) => Promise<Result>,
   'execPropose' : (arg_0: bigint) => Promise<Result>,
-  'getCanisters' : () => Promise<Result_6>,
+  'getCanisters' : () => Promise<Result_7>,
   'getOwner' : () => Promise<Principal>,
+  'getOwners' : () => Promise<Result_6>,
   'getProposes' : () => Promise<Result_5>,
   'getRecords' : (arg_0: Principal) => Promise<Result_4>,
   'getStatus' : () => Promise<Result_3>,
