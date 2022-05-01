@@ -147,26 +147,6 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
         };
 
     };
-
-    public query({caller}) func getWasm(canister_id : Principal) : async Result.Result<[Nat8], Error>{
-        if(caller != owner){
-            return #err(#Invalid_Caller)
-        };
-        switch(canisters.get(canister_id)){
-            case null { #err(#Invalid_CanisterId) };
-            case(?c){
-                switch(c.wasm){
-                    case null { #err(#No_Wasm) };
-                    case(?wasm){
-                        #ok(wasm)
-                    }
-                }
-            }
-        }
-    };
-
-
-
     public shared({caller}) func addPropose(p: Propose) : async Result.Result<Nat, Error> {
          switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
            case null return #err(#Invalid_Caller);
@@ -398,57 +378,6 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
     let CYCLE_MINTING_CANISTER = Principal.fromText("rkp4c-7iaaa-aaaaa-aaaca-cai");
     let ledger : Ledger = actor("ryjl3-tyaaa-aaaaa-aaaba-cai");
     let TOP_UP_CANISTER_MEMO = 0x50555054 : Nat64;
-
-    type DeployArgs = {
-        name : Text;
-        description : Text;
-        settings : ?canister_settings;
-        wasm : [Nat8];
-        cycle_amount : Nat;
-        preserve_wasm : Bool;
-    };
-
-   
-
-    public shared({caller}) func startCanister(principal : Principal) : async Result.Result<Text, Text> {
-        let management : Management = actor("aaaaa-aa");
-        await management.start_canister({ canister_id = principal});
-        let record = {
-            canister_id = principal;
-            method = #start;
-            amount = 0;
-            times = Time.now();
-        };
-        switch(records.get(record.canister_id)){
-            case(null) {records.put(record.canister_id,[record])};
-            case(?r){
-                let p = Array.append(r,[record]);
-                records.put(record.canister_id,p);
-            }
-        };
-        #ok("start canister successfully")
-        
-    };
-
-    public shared({caller}) func stopCanister(principal : Principal) : async Result.Result<Text, Text> {
-        let management : Management = actor("aaaaa-aa");
-        await management.stop_canister({ canister_id = principal});
-        let record = {
-            canister_id = principal;
-            method = #stop;
-            amount = 0;
-            times = Time.now();
-        };
-        switch(records.get(record.canister_id)){
-            case(null) {records.put(record.canister_id,[record])};
-            case(?r){
-                let p = Array.append(r,[record]);
-                records.put(record.canister_id,p);
-            }
-        };
-        #ok("stop canister successfully")
-
-    };
 
     public shared({caller}) func depositCycles(
         id : Principal,
