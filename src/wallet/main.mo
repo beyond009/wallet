@@ -35,9 +35,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
     };
     type Canister = {
         name : Text;
-        description : Text;
         canister_id : Principal;
-        wasm : ?[Nat8];
     };
     type Propose = {
       index : Nat;
@@ -69,14 +67,6 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
     var canisters : TrieMap.TrieMap<Principal, Canister> = TrieMap.fromEntries(canisters_entries.vals(), Principal.equal, Principal.hash);
     var vote : TrieMap.TrieMap<Nat, Nat> = TrieMap.fromEntries(vote_entries.vals(), Nat.equal, Hash.hash);
 
-    public shared({caller}) func changeOwner(newOwner : Principal) : async Result.Result<(), Error>{
-        if(caller == owner){
-            owner := newOwner;
-            #ok()
-        }else{
-            #err(#Invalid_Caller)
-        }
-    };
 
     public query func getOwner() : async Principal{
         owner
@@ -224,7 +214,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
     }; 
 
 
-    public shared({caller}) func execPropose(index : Nat) : async Result.Result<(), Error> {
+    public shared({caller}) func execPropose(index : Nat) : async Result.Result<Any, Error> {
         switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
            case null return #err(#Invalid_Caller);
            case (?c) {
@@ -251,48 +241,72 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
                             return #ok();
                           };
                           case(#Del_Owner){return #ok();};
-                          case(#Create_Canister){return #ok();};
-                          case(#Start_Canister){return #ok();};
-                          case(#Del_Canister){return #ok();};
-                          case(#Stop_Canister){return #ok();};
+                          case(#Create_Canister){
+                              let management : Management = actor("aaaaa-aa");
+                              Cycles.add(1000000000000);
+                              let canister_id : Principal = (await management.create_canister({ settings = ?{
+                                    freezing_threshold = null;
+                                    controllers = ?[Principal.fromActor(this)];
+                                    memory_allocation = null;
+                                    compute_allocation = null;
+                              }})).canister_id;
+                              canisters.put(canister_id,{name = "123"; canister_id = canister_id});
+                              return #ok(canister_id);
+                          };
+                            case(#Start_Canister){
+                                let management : Management = actor("aaaaa-aa");
+                                await management.start_canister({ canister_id = propose.principal});
+                                return #ok();
+                            };
+                            case(#Del_Canister){
+                                let management : Management = actor("aaaaa-aa");
+                                await management.delete_canister({ canister_id = propose.principal });
+                                canisters.delete(propose.principal);
+                                return #ok();
+                            };
+                            case(#Stop_Canister){
+                                let management : Management = actor("aaaaa-aa");
+                                await management.stop_canister({ canister_id = propose.principal});
+                                return #ok();
+                            };
+                            };
+                        } else {
+                            return #err(#Invalid_Propose_Result);
                         };
-                      } else {
-                        return #err(#Invalid_Propose_Result);
                     };
-                  };
-                 };
-               };
-             };
-           };
-        };         
-    };
-
-    public shared({caller}) func putCanister(c : Canister) : async Result.Result<(), Error>{
-        if(caller != owner){
-            return #err(#Invalid_Caller)
+                    };
+                };
+                };
+            };
+            };         
         };
-        canisters.put(c.canister_id, c);
-        #ok(())
-    };
 
-    public type canister_id = Principal;
+        public shared({caller}) func putCanister(c : Canister) : async Result.Result<(), Error>{
+            if(caller != owner){
+                return #err(#Invalid_Caller)
+            };
+            canisters.put(c.canister_id, c);
+            #ok(())
+        };
 
-    public type wasm_module = [Nat8];
+        public type canister_id = Principal;
 
-    public type canister_settings = {
-        freezing_threshold : ?Nat;
-        controllers : ?[Principal];
-        memory_allocation : ?Nat;
-        compute_allocation : ?Nat;
-    };
+        public type wasm_module = [Nat8];
 
-    public type Management = actor {
+        public type canister_settings = {
+            freezing_threshold : ?Nat;
+            controllers : ?[Principal];
+            memory_allocation : ?Nat;
+            compute_allocation : ?Nat;
+        };
 
-        delete_canister : shared { canister_id : canister_id } -> async ();
+        public type Management = actor {
 
-        deposit_cycles : shared { canister_id : canister_id } -> async ();
-        start_canister : shared { canister_id : canister_id } -> async ();
-        stop_canister : shared { canister_id : canister_id } -> async ();
+            delete_canister : shared { canister_id : canister_id } -> async ();
+
+            deposit_cycles : shared { canister_id : canister_id } -> async ();
+            start_canister : shared { canister_id : canister_id } -> async ();
+            stop_canister : shared { canister_id : canister_id } -> async ();
         install_code : shared {
             arg : [Nat8];
             wasm_module : wasm_module;
@@ -394,58 +408,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
         preserve_wasm : Bool;
     };
 
-    public shared({caller}) func deployCanister(
-        args : DeployArgs
-    ) : async Result.Result<Principal, Error>{
-        if(caller != owner){
-            return #err(#Invalid_Caller)
-        };
-        if(args.cycle_amount >= Cycles.balance()){
-            return #err(#Insufficient_Cycles)
-        };
-        Cycles.add(args.cycle_amount);
-        let management : Management = actor("aaaaa-aa");
-        let _canister_id = (await management.create_canister({ settings = args.settings })).canister_id;
-        canisters.put(_canister_id, {
-            name = args.name;
-            description = args.description;
-            canister_id = _canister_id;
-            wasm = if(args.preserve_wasm){
-                ?args.wasm
-            }else{
-                null
-            };
-        });
-        ignore await management.update_settings({
-            canister_id = _canister_id;
-            settings = {
-                freezing_threshold = null;
-                controllers = ?[Principal.fromActor(this), caller];
-                memory_allocation = null;
-                compute_allocation = null;
-            }
-        });
-        ignore await management.install_code({
-            arg = [];
-            wasm_module = args.wasm;
-            mode = #install;
-            canister_id = _canister_id;
-        });
-        let record = {
-            canister_id = _canister_id;
-            method = #deploy;
-            amount = args.cycle_amount;
-            times = Time.now();
-        };
-        switch(records.get(record.canister_id)){
-            case(null) {records.put(record.canister_id,[record])};
-            case(?r){
-                let p = Array.append(r,[record]);
-                records.put(record.canister_id,p);
-            }
-        };
-        #ok(_canister_id)
-    };
+   
 
     public shared({caller}) func startCanister(principal : Principal) : async Result.Result<Text, Text> {
         let management : Management = actor("aaaaa-aa");
@@ -524,29 +487,7 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
         withdraw_cycles : (to : ?Principal) -> async ();
     };
 
-    public shared({caller}) func delCanister(
-        id : Principal,
-        cycle_to : ?Principal
-    ) : async Result.Result<(), Error>{
-        if(caller != owner){
-            return #err(#Invalid_Caller)
-        };
-        // install wasm
-        let management : Management = actor("aaaaa-aa");
-        ignore await management.install_code({
-            arg = [];
-            wasm_module = cycle_wasm;
-            mode = #reinstall;
-            canister_id = id;
-        });
-        // call to interface
-        let from : CycleInterface = actor(Principal.toText(id));
-        await from.withdraw_cycles(cycle_to);
-        ignore await management.stop_canister({canister_id = id });
-        ignore await management.delete_canister({ canister_id = id });
-        canisters.delete(id);
-        #ok(())
-    };
+  
 
     public func wallet_receive() : async (){
         ignore Cycles.accept(Cycles.available())
