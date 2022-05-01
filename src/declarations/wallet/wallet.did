@@ -1,27 +1,139 @@
-type main = 
+type hub = 
  service {
-   create_canister: () -> (Result_1);
-   delete_canister: (canister_id) -> (Result);
-   install_code: (vec nat8, canister_id) -> (Result);
-   propose: (nat, nat) -> (Result);
-   start_canister: (canister_id) -> (Result);
-   stop_canister: (canister_id) -> (Result);
-   vote: (nat, bool) -> (Result);
+   addPropose: (Propose) -> (Result_8);
+   changeOwner: (principal) -> (Result);
+   delCanister: (principal, opt principal) -> (Result);
+   deployCanister: (DeployArgs) -> (Result_7);
+   depositCycles: (principal, nat) -> (Result);
+   execPropose: (nat) -> (Result);
+   getCanisters: () -> (Result_6) query;
+   getOwner: () -> (principal) query;
+   getProposes: () -> (Result_5) query;
+   getRecords: (principal) -> (Result_4) query;
+   getStatus: () -> (Result_3) query;
+   getWasm: (principal) -> (Result_2) query;
+   installCycleWasm: (vec nat8) -> ();
+   putCanister: (Canister) -> (Result);
+   startCanister: (principal) -> (Result_1);
+   stopCanister: (principal) -> (Result_1);
+   votePropose: (nat, bool) -> (Result);
+   wallet_receive: () -> ();
  };
-type canister_id = principal;
-type Result_1 = 
+type canister_settings = 
+ record {
+   compute_allocation: opt nat;
+   controllers: opt vec principal;
+   freezing_threshold: opt nat;
+   memory_allocation: opt nat;
+ };
+type Time = int;
+type Status = 
+ record {
+   cycle_balance: nat;
+   memory: nat;
+ };
+type Result_8 = 
  variant {
    err: Error;
-   ok: canister_id;
+   ok: nat;
+ };
+type Result_7 = 
+ variant {
+   err: Error;
+   ok: principal;
+ };
+type Result_6 = 
+ variant {
+   err: Error;
+   ok: vec Canister;
+ };
+type Result_5 = 
+ variant {
+   err: Error;
+   ok: vec Propose;
+ };
+type Result_4 = 
+ variant {
+   err: Error;
+   ok: vec Record;
+ };
+type Result_3 = 
+ variant {
+   err: Error;
+   ok: Status;
+ };
+type Result_2 = 
+ variant {
+   err: Error;
+   ok: vec nat8;
+ };
+type Result_1 = 
+ variant {
+   err: text;
+   ok: text;
  };
 type Result = 
  variant {
    err: Error;
-   ok: text;
+   ok;
+ };
+type Record = 
+ record {
+   amount: nat;
+   canister_id: principal;
+   method: variant {
+             deploy;
+             deposit;
+             start;
+             stop;
+           };
+   times: Time;
+ };
+type Propose = 
+ record {
+   action: Action;
+   content: text;
+   file_key: text;
+   index: nat;
+   "principal": principal;
+   result: bool;
+   wasm: opt vec nat8;
  };
 type Error = 
  variant {
-   CanisterNumberWrong;
-   ProposeNumberWrong;
+   Insufficient_Cycles;
+   Invalid_Caller;
+   Invalid_CanisterId;
+   Invalid_Propose_Result;
+   Invalid_Propose_index;
+   No_Record;
+   No_Wasm;
+   Transfer_Failed;
  };
-service : (nat, vec principal) -> main
+type DeployArgs = 
+ record {
+   cycle_amount: nat;
+   description: text;
+   name: text;
+   preserve_wasm: bool;
+   settings: opt canister_settings;
+   wasm: vec nat8;
+ };
+type Canister = 
+ record {
+   canister_id: principal;
+   description: text;
+   name: text;
+   wasm: opt vec nat8;
+ };
+type Action = 
+ variant {
+   Add_Owner;
+   Create_Canister;
+   Del_Canister;
+   Del_Owner;
+   Install;
+   Start_Canister;
+   Stop_Canister;
+ };
+service : (nat, vec principal) -> hub

@@ -104,6 +104,15 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
             memory = Prim.rts_memory_size()
         })
     };
+    
+    public query({caller}) func getOwners() : async Result.Result<[Principal],Error>{
+        switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
+           case null return #err(#Invalid_Caller);
+           case (?c) {
+             #ok(owners);
+           }
+         };
+    };
 
     public query({caller}) func getCanisters() : async Result.Result<[Canister], Error>{
         var res = Array.init<Canister>(canisters.size(), {
@@ -213,6 +222,8 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
            };
         };            
     }; 
+
+
     public shared({caller}) func execPropose(index : Nat) : async Result.Result<(), Error> {
         switch(Array.find(owners,func(id : Principal) : Bool {id == caller})){
            case null return #err(#Invalid_Caller);
@@ -235,11 +246,13 @@ shared(installer) actor class hub(m : Nat, members: [Principal]) = this{
                             });
                             return #ok();
                           };
-                          case(#Add_Owner){return #ok();};
+                          case(#Add_Owner){
+                            owners := Array.append<Principal>(owners,[propose.principal]);
+                            return #ok();
+                          };
                           case(#Del_Owner){return #ok();};
                           case(#Create_Canister){return #ok();};
                           case(#Start_Canister){return #ok();};
-                          case(#Del_Owner){return #ok();};
                           case(#Del_Canister){return #ok();};
                           case(#Stop_Canister){return #ok();};
                         };
